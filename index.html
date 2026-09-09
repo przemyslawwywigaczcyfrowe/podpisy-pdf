@@ -592,9 +592,9 @@ function run(files){
    tej witryny, ustawiane w konsoli Google Cloud.
    Puste wartości oznaczają, że przycisk „Dysk Google" się nie pokazuje. */
 const GOOGLE={
-  clientId:"",     /* identyfikator klienta OAuth (kończy się na .apps.googleusercontent.com) */
-  apiKey:"",       /* klucz API */
-  appId:"",        /* numer projektu Google Cloud */
+  clientId:"711331738889-58jcv505ne4vsp025e9g0g388a2emo49.apps.googleusercontent.com",     /* identyfikator klienta OAuth (kończy się na .apps.googleusercontent.com) */
+  apiKey:"AIzaSyCZnLy4_2keA7jx40MGZrFVkW62Gs-pwpw",       /* klucz API */
+  appId:"711331738889",        /* numer projektu Google Cloud */
   /* drive.readonly pozwala wejść do wskazanego folderu i przeczytać jego zawartość.
      Węższy drive.file wystarcza do pojedynczych plików, ale nie gwarantuje
      wylistowania folderu. */
@@ -705,18 +705,24 @@ async function pickFromDrive(){
     return;
   }
   driveMsg("");
-  const pdfView=new google.picker.DocsView(google.picker.ViewId.DOCS)
-    .setMimeTypes("application/pdf").setIncludeFolders(true).setEnableDrives(true);
-  const folderView=new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-    .setMimeTypes(FOLDER_MIME).setIncludeFolders(true)
-    .setSelectFolderEnabled(true).setEnableDrives(true);
+  /* Jeden widok pokazuje i pliki PDF, i foldery, więc wskazać można jedno albo drugie.
+     setEnableDrives przełącza widok na dyski współdzielone, dlatego jest osobną zakładką,
+     a nie ustawieniem na widoku „Mój dysk". */
+  const MIX="application/pdf,"+FOLDER_MIME;
+  const mine=new google.picker.DocsView(google.picker.ViewId.DOCS)
+    .setMimeTypes(MIX).setIncludeFolders(true).setSelectFolderEnabled(true)
+    .setLabel("Mój dysk");
+  const shared=new google.picker.DocsView(google.picker.ViewId.DOCS)
+    .setMimeTypes(MIX).setIncludeFolders(true).setSelectFolderEnabled(true)
+    .setEnableDrives(true).setLabel("Dyski współdzielone");
   new google.picker.PickerBuilder()
     .setTitle("Wskaż pliki PDF albo folder")
+    .setLocale("pl")
     .setOAuthToken(gToken)
     .setDeveloperKey(GOOGLE.apiKey)
     .setAppId(GOOGLE.appId)
-    .addView(pdfView)
-    .addView(folderView)
+    .addView(mine)
+    .addView(shared)
     .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
     .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
     .setCallback(onPicked)
