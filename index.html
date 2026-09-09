@@ -1,0 +1,806 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kontrola podpisów w PDF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@300..900&family=Google+Sans+Code:wght@300..700&display=swap">
+<style>
+/* Tokeny przeniesione z panelu „Puls sklepu" (brandbook). Panel jest jednomotywowy:
+   granicę pola niesie obrys --edge, nie cień i nie różnica tonu. */
+:root{
+  --paper:#E9EEF5;
+  --white:#FFFFFF;
+  --card:#FFFFFF;
+  --card-q:#EDF1F8;
+  --edge:#C3CEDE;
+  --edge-q:#CBD4E2;
+  --ink:#111318;
+  --ink2:#454B54;
+  --muted:#5A616A;
+  --rule:#D4DDE9;
+  --hair:#E1E8F2;
+  --track:#D4DDE9;
+  --shadow-lift:0 2px 10px rgba(17,19,24,.08);
+  --r-card:28px;
+  --acc:#0B57D0;
+  --acc-dark:#0842A0;
+  --acc-weak:#A9C6F6;
+  --acc-soft:#D3E2FC;
+  --good:#12784A; --good-soft:#CDEBDB; --on-good:#0F6A41;
+  --bad:#C3291F;  --bad-soft:#FBD9D5;  --on-bad:#B3241B;
+  --warn:#B0700A; --warn-soft:#FAE5C0; --on-warn:#8A5707;
+  --f:Figtree,system-ui,-apple-system,'Segoe UI',sans-serif;
+  --fn:'Google Sans Code',ui-monospace,'SF Mono',Consolas,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--f);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px;margin:0 auto;padding:28px 20px 56px}
+.sec{background:var(--card);border:1px solid var(--edge);border-radius:var(--r-card);padding:24px 28px 26px;margin-bottom:14px}
+.sec.tight{padding:0;overflow:hidden}
+.lab{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);display:flex;align-items:center;gap:8px}
+h1{margin:6px 0 10px;font-size:26px;font-weight:600;letter-spacing:-.02em;text-wrap:balance}
+h2{margin:0;font-size:15px;font-weight:700;letter-spacing:-.01em}
+.lead{margin:0;color:var(--ink2);max-width:70ch}
+.lead b{color:var(--ink);font-weight:700}
+
+/* strefa upuszczania */
+.dz{background:var(--card-q);border:1.5px dashed var(--edge);border-radius:var(--r-card);
+    padding:26px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px;
+    transition:border-color .16s,background .16s}
+.dz.over{border-style:solid;border-color:var(--acc);background:var(--acc-soft)}
+.dz-lead{font-size:16px;font-weight:600}
+.dz-sub{color:var(--muted);max-width:56ch}
+.row{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+     font:600 13px var(--f);color:var(--ink2);background:var(--card);border:1px solid var(--edge);
+     padding:11px 20px;border-radius:999px;cursor:pointer;white-space:nowrap;
+     transition:background .16s,color .16s,border-color .16s}
+.btn:hover{background:var(--card-q);color:var(--ink)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc-dark);border-color:var(--acc-dark);color:#fff}
+.btn:disabled{opacity:.45;cursor:default}
+.btn:focus-visible,.tab:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* postęp */
+.prog{display:none;margin-bottom:14px}
+.prog.on{display:block}
+.track{height:6px;background:var(--track);border-radius:999px;overflow:hidden;margin-bottom:9px}
+.track i{display:block;height:100%;width:0;background:var(--acc);border-radius:999px;transition:width .12s linear}
+.pnote{font-family:var(--fn);font-size:12px;color:var(--ink2);font-variant-numeric:tabular-nums}
+
+/* werdykt */
+.verdict{display:none;background:var(--card);border:1px solid var(--edge);border-left:5px solid var(--good);
+         border-radius:var(--r-card);padding:24px 28px;margin-bottom:14px;align-items:center;gap:22px;flex-wrap:wrap}
+.verdict.on{display:flex}
+.verdict.alarm{border-left-color:var(--bad)}
+.vnum{font-size:40px;font-weight:300;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums;color:var(--good)}
+.verdict.alarm .vnum{color:var(--bad)}
+.vtxt{font-size:14px;color:var(--ink2);max-width:56ch}
+.vtxt b{color:var(--ink);font-weight:700}
+
+/* zakładki */
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.tab{display:inline-flex;align-items:center;gap:7px;font:600 12.5px var(--f);color:var(--ink2);
+     background:var(--card);border:1px solid var(--edge);padding:9px 16px;border-radius:999px;cursor:pointer;
+     transition:background .16s,color .16s,border-color .16s}
+.tab:hover{background:var(--card-q);color:var(--ink)}
+.tab[aria-selected="true"]{background:var(--acc);border-color:var(--acc);color:#fff}
+.tab .n{font-family:var(--fn);font-size:11.5px;font-variant-numeric:tabular-nums;
+        background:var(--card-q);color:var(--muted);border-radius:999px;padding:1px 7px}
+.tab[aria-selected="true"] .n{background:rgba(255,255,255,.22);color:#fff}
+
+/* nagłówek listy */
+.lhead{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:center;justify-content:space-between;padding:22px 26px 18px}
+.lhead .txt{display:flex;flex-direction:column;gap:3px;min-width:min(320px,100%)}
+.hint{font-size:12px;color:var(--muted);max-width:72ch}
+.csvwrap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* tabela */
+.tscroll{overflow-x:auto;padding:0 14px 18px}
+table{width:100%;border-collapse:separate;border-spacing:0 2px}
+th{font-size:11px;font-weight:700;letter-spacing:.4px;color:var(--muted);text-align:left;
+   padding:0 12px 10px;white-space:nowrap}
+th.r,td.r{text-align:right}
+td{font-size:13px;padding:12px;color:var(--ink2);background:var(--card-q);vertical-align:top}
+tr td:first-child{border-radius:10px 0 0 10px}
+tr td:last-child{border-radius:0 10px 10px 0}
+tr.s-bad td{background:var(--bad-soft)}
+tr.s-bad td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
+tr.s-warn td{background:var(--warn-soft)}
+tr.s-warn td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+.fn{font-family:var(--fn);font-size:12.5px;color:var(--ink);word-break:break-all;max-width:38ch;display:block}
+.fp{display:block;font-family:var(--fn);font-size:11px;color:var(--muted);word-break:break-all}
+.num{font-family:var(--fn);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;font-size:11.5px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--good-soft);color:var(--on-good)}
+.pill.bad{background:var(--bad-soft);color:var(--on-bad)}
+.pill.warn{background:var(--warn-soft);color:var(--on-warn)}
+.pill.flat{background:var(--card);color:var(--muted);border:1px solid var(--edge)}
+.tagline{display:block;font-size:10.5px;font-weight:700;letter-spacing:.3px;color:var(--muted);margin-top:4px}
+.dim{color:var(--muted)}
+.std{font-family:var(--fn);font-size:11px;color:var(--muted);white-space:nowrap}
+.none{padding:24px 26px;color:var(--muted);text-align:center}
+
+/* licznik uzysku */
+.gain{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:16px}
+.gcell{background:var(--card-q);border:1px solid var(--edge-q);border-radius:18px;padding:20px 22px}
+.gcell .mk{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--muted);line-height:1.3}
+.gcell .mv{font-size:40px;font-weight:300;letter-spacing:-.04em;margin:8px 0 4px;
+           font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ink)}
+.gcell.hero{background:var(--acc-soft);border-color:var(--acc-weak)}
+.gcell.hero .mv{color:var(--acc-dark)}
+.gcell .ms{font-size:12px;color:var(--muted)}
+.gfoot{margin-top:12px;font-size:12px;color:var(--muted)}
+
+/* objaśnienia */
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:16px}
+.fact{background:var(--card-q);border:1px solid var(--edge-q);border-radius:18px;padding:18px 20px}
+.fact h3{margin:0 0 6px;font-size:12.5px;font-weight:700}
+.fact p{margin:0;font-size:12.5px;color:var(--ink2)}
+footer{color:var(--muted);font-size:12px;padding:4px 6px}
+footer p{margin:0 0 6px;max-width:88ch}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (max-width:640px){
+  .wrap{padding:16px 12px 40px}
+  .sec{padding:20px 18px 22px;border-radius:20px}
+  h1{font-size:21px}
+  .verdict{padding:20px 18px;border-radius:20px}
+  .vnum{font-size:34px}
+  .gcell .mv{font-size:32px}
+  .fn{max-width:20ch}
+  .lhead{padding:18px 16px 14px}
+}
+</style>
+
+<div class="wrap">
+  <section class="sec">
+    <span class="lab">Kontrola dokumentów</span>
+    <h1>Które PDF-y nie mają podpisu elektronicznego</h1>
+    <p class="lead">Proszę wrzucić pliki albo cały folder. Sprawdzanie odbywa się <b>w tej przeglądarce</b>, więc dokumenty nie są nigdzie wysyłane ani zapisywane. Narzędzie czyta z każdego pliku miejsce, w którym PDF przechowuje podpis, i stawia pliki bez podpisu na górze listy.</p>
+
+    <div class="dz" id="dz" style="margin-top:18px">
+      <span class="dz-lead">Upuść tutaj pliki PDF albo folder z dokumentami</span>
+      <span class="dz-sub">Można wrzucić kilkaset plików naraz. Nic nie wychodzi z komputera.</span>
+      <span class="row">
+        <button class="btn pri" id="pick-files">Wybierz pliki</button>
+        <button class="btn" id="pick-dir">Wybierz folder</button>
+        <button class="btn" id="clear" disabled>Wyczyść listę</button>
+      </span>
+      <input type="file" id="in-files" multiple accept="application/pdf,.pdf" hidden>
+      <input type="file" id="in-dir" webkitdirectory directory multiple hidden>
+    </div>
+  </section>
+
+  <div class="prog" id="prog">
+    <div class="sec" style="padding:20px 26px">
+      <div class="track"><i id="bar"></i></div>
+      <div class="pnote" id="pnote">Sprawdzam...</div>
+    </div>
+  </div>
+
+  <section class="verdict" id="verdict">
+    <span class="vnum" id="vnum">0</span>
+    <span class="vtxt" id="vtxt"></span>
+  </section>
+
+  <div class="tabs" id="tabs"></div>
+
+  <section class="sec tight">
+    <div class="lhead">
+      <span class="txt">
+        <h2 id="ltitle">Wiersze przykładowe</h2>
+        <span class="hint" id="lhint">Wynik pomiaru na 14 plikach z zestawu testowego ETSI. Po wrzuceniu własnych plików ta lista zostanie zastąpiona.</span>
+      </span>
+      <span class="csvwrap">
+        <button class="btn" id="csv">Zapisz wynik do arkusza</button>
+        <span class="hint" id="csvmsg" role="status"></span>
+      </span>
+    </div>
+    <div class="tscroll">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Plik</th>
+            <th scope="col">Ocena</th>
+            <th scope="col">Kto podpisał</th>
+            <th scope="col">Data podpisu</th>
+            <th scope="col" class="r">Podpisy</th>
+            <th scope="col">Standard</th>
+            <th scope="col" class="r">Rozmiar</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="none" id="nonote" hidden>W tej grupie nie ma żadnego pliku.</div>
+  </section>
+
+  <section class="sec">
+    <span class="lab">Uzysk czasowy</span>
+    <h2 style="margin-top:6px">Ile ręcznej pracy zdjęło to narzędzie</h2>
+    <p class="lead" style="margin-top:6px">Licznik zbiera wszystkie pliki sprawdzone tym narzędziem, także przez inne osoby. Przelicznik to <b>30 sekund na dokument</b>, czyli tyle, ile zajmuje otwarcie jednej umowy i sprawdzenie w niej podpisu ręcznie.</p>
+    <div class="gain">
+      <div class="gcell hero">
+        <div class="mk">Zaoszczędzony czas, razem</div>
+        <div class="mv" id="g-time">0 godz.</div>
+        <div class="ms">po 30 sekund na dokument</div>
+      </div>
+      <div class="gcell">
+        <div class="mk">Sprawdzone dokumenty, razem</div>
+        <div class="mv" id="g-total">0</div>
+        <div class="ms" id="g-total-sub">licznik wspólny</div>
+      </div>
+      <div class="gcell">
+        <div class="mk">W tej sesji</div>
+        <div class="mv" id="g-session">0</div>
+        <div class="ms" id="g-session-sub">nic jeszcze nie sprawdzono</div>
+      </div>
+    </div>
+    <p class="gfoot" id="g-foot"></p>
+  </section>
+
+  <section class="sec">
+    <span class="lab">Jak to czytać</span>
+    <div class="facts">
+      <div class="fact">
+        <h3>Co znaczy „podpisany”</h3>
+        <p>W pliku jest komplet danych podpisu, czyli certyfikat osoby lub firmy oraz zabezpieczenie treści. To ten sam podpis, który Adobe Reader pokazuje na górze dokumentu.</p>
+      </div>
+      <div class="fact">
+        <h3>Puste pole podpisu to brak podpisu</h3>
+        <p>Zdarzają się dokumenty przygotowane do podpisania, z gotowym miejscem, którego nikt nie wypełnił. Takie pliki są tu liczone jako niepodpisane i mają własną grupę.</p>
+      </div>
+      <div class="fact">
+        <h3>Czego to nie sprawdza</h3>
+        <p>Nie wiadomo, czy podpis jest ważny i czy wystawca certyfikatu jest zaufany. Do tego służy Adobe Reader albo weryfikator podpisu. Tutaj odpowiedź brzmi tylko: podpis jest albo go nie ma.</p>
+      </div>
+      <div class="fact">
+        <h3>Podpis odręczny ze skanu się nie liczy</h3>
+        <p>Wklejone zdjęcie podpisu jest dla pliku zwykłym obrazkiem, więc wyjdzie jako „bez podpisu”. Tak samo widzi to każdy program weryfikujący.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>Znacznik czasu bez podpisu osoby jest wykazywany osobno. Sam znacznik potwierdza tylko, kiedy plik istniał w tej postaci, i nie mówi, kto go zatwierdził.</p>
+    <p>Detektor sprawdzono na 25 dokumentach z publicznego zestawu testowego ETSI, w tym na plikach z pustym polem podpisu, z podpisem wielokrotnym, z samym znacznikiem czasu i na dokumencie zaszyfrowanym. Zgodność z wynikiem odniesienia: 25 na 25.</p>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- wyniki przykładowe (prawdziwy pomiar na zestawie ETSI) ---------- */
+const SAMPLE = [{"name":"doc.pdf","size":36535,"status":"BRAK","nSig":0,"nTs":0,"fields":0,"who":null,"when":null,"std":null,"enc":false},{"name":"not_signed_pdfa.pdf","size":18336,"status":"BRAK","nSig":0,"nTs":0,"fields":0,"who":null,"when":null,"std":null,"enc":false},{"name":"pdf-2.0.pdf","size":5211,"status":"BRAK","nSig":0,"nTs":0,"fields":0,"who":null,"when":null,"std":null,"enc":false},{"name":"pdf-xref-streams.pdf","size":98978,"status":"BRAK","nSig":0,"nTs":0,"fields":0,"who":null,"when":null,"std":null,"enc":false},{"name":"testdoc.pdf","size":19646,"status":"BRAK","nSig":0,"nTs":0,"fields":0,"who":null,"when":null,"std":null,"enc":false},{"name":"documentEmptySignature.pdf","size":177263,"status":"PUSTE_POLE","nSig":0,"nTs":0,"fields":1,"who":null,"when":null,"std":null,"enc":false},{"name":"pdf-with-empty-sig.pdf","size":156916,"status":"PUSTE_POLE","nSig":0,"nTs":0,"fields":1,"who":null,"when":null,"std":null,"enc":false},{"name":"sample-with-empty-signature-fields.pdf","size":139117,"status":"PUSTE_POLE","nSig":0,"nTs":0,"fields":2,"who":null,"when":null,"std":null,"enc":false},{"name":"AD-RB.pdf","size":376500,"status":"PODPISANY","nSig":2,"nTs":0,"fields":0,"who":"DocuSign DEV-TEST","when":"2017-04-27 17:58","std":"PBAD.PAdES","enc":false},{"name":"PAdES-LT.pdf","size":320059,"status":"PODPISANY","nSig":3,"nTs":1,"fields":4,"who":"LEPROPRE Jean","when":"2021-04-01 11:21","std":"ETSI.CAdES.detached","enc":false},{"name":"PAdES-LTA.pdf","size":4261525,"status":"PODPISANY","nSig":1,"nTs":1,"fields":2,"who":"Andreas Reifschneider","when":"2017-12-01 21:58","std":"ETSI.CAdES.detached","enc":false},{"name":"Signature-P-BG_BOR-1.pdf","size":44927,"status":"PODPISANY","nSig":1,"nTs":0,"fields":1,"who":"Valentin Tsvetanov Ivanov","when":"2014-11-07 14:18","std":"adbe.pkcs7.detached","enc":false},{"name":"Signature-P-HU_MIC-1.pdf","size":60329,"status":"PODPISANY","nSig":1,"nTs":0,"fields":1,"who":"Géczi Zoltán Csaba","when":"2019-11-04 15:59","std":"ETSI.CAdES.detached","enc":false},{"name":"edition_protected_signing_allowed_with_field_signed.pdf","size":54801,"status":"PODPISANY","nSig":1,"nTs":0,"fields":0,"who":"Pierrick Vandenbroucke (Signature)","when":null,"std":"adbe.pkcs7.detached","enc":true}];
+
+/* ================= WYSZUKIWANIE BAJTÓW ================= */
+function bytesOf(s){const a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a;}
+const P_CONTENTS=bytesOf("/Contents"), P_BYTERANGE=bytesOf("/ByteRange"), P_FT=bytesOf("/FT"),
+      P_SIG=bytesOf("/Sig"), P_ENCRYPT=bytesOf("/Encrypt"), P_PDF=bytesOf("%PDF-");
+
+function findAll(u8,pat,cap){
+  const out=[],n=u8.length,m=pat.length,p0=pat[0];
+  if(n<m) return out;
+  for(let i=0;i<=n-m;i++){
+    if(u8[i]!==p0) continue;
+    let j=1;
+    while(j<m && u8[i+j]===pat[j]) j++;
+    if(j===m){ out.push(i); if(cap && out.length>=cap) break; i+=m-1; }
+  }
+  return out;
+}
+const isWs=c=>c===32||c===10||c===13||c===9||c===12||c===0;
+const isHex=c=>(c>=48&&c<=57)||(c>=97&&c<=102)||(c>=65&&c<=70);
+
+function latin1(u8,from,to){
+  from=Math.max(0,from); to=Math.min(u8.length,to);
+  let s="";
+  for(let i=from;i<to;i+=8192) s+=String.fromCharCode.apply(null,u8.subarray(i,Math.min(to,i+8192)));
+  return s;
+}
+
+/* ================= ASN.1 / CMS ================= */
+function tlv(b,i,end){
+  if(i+1>=end) return null;
+  const t=b[i]; i++;
+  let l=b[i]; i++;
+  if(l===0x80) return {t:t,cs:i,len:-1};
+  if(l&0x80){
+    const n=l&0x7f;
+    if(n===0||n>4) return null;
+    l=0;
+    for(let k=0;k<n;k++){ l=l*256+b[i+k]; }
+    i+=n;
+  }
+  return {t:t,cs:i,len:l};
+}
+function kids(b,s,e){
+  const out=[]; let i=s;
+  while(i<e-1){
+    if(b[i]===0&&b[i+1]===0) break;
+    const h=tlv(b,i,e);
+    if(!h) break;
+    if(h.len===-1){ out.push({t:h.t,s:h.cs,e:e}); break; }
+    const ce=h.cs+h.len;
+    if(ce>e) break;
+    out.push({t:h.t,s:h.cs,e:ce});
+    i=ce;
+  }
+  return out;
+}
+function decodeStr(b,s,e,tag){
+  const len=e-s;
+  if(len<=0||len>512) return null;
+  try{
+    if(tag===0x1e){
+      let out="";
+      for(let i=s;i+1<e;i+=2) out+=String.fromCharCode(b[i]*256+b[i+1]);
+      return out;
+    }
+    return new TextDecoder("utf-8",{fatal:false}).decode(b.subarray(s,e));
+  }catch(err){ return null; }
+}
+function cnOfName(b,s,e){
+  const rdns=kids(b,s,e);
+  for(const r of rdns){
+    for(const at of kids(b,r.s,r.e)){
+      const k=kids(b,at.s,at.e);
+      if(k.length>=2 && k[0].t===6 && (k[0].e-k[0].s)===3 &&
+         b[k[0].s]===0x55 && b[k[0].s+1]===0x04 && b[k[0].s+2]===0x03){
+        const v=decodeStr(b,k[1].s,k[1].e,k[1].t);
+        if(v) return v;
+      }
+    }
+  }
+  return null;
+}
+function sameBytes(b,a1,a2,b1,b2){
+  while(a1<a2&&b[a1]===0)a1++;
+  while(b1<b2&&b[b1]===0)b1++;
+  if(a2-a1!==b2-b1) return false;
+  for(let i=0;i<a2-a1;i++) if(b[a1+i]!==b[b1+i]) return false;
+  return true;
+}
+function signerFromCms(der){
+  const h=tlv(der,0,der.length);
+  if(!h) return null;
+  const end=h.len===-1?der.length:h.cs+h.len;
+  let sd=null;
+  for(const c of kids(der,h.cs,end)){
+    if(c.t===0xA0){ const k=kids(der,c.s,c.e); if(k.length) sd=k[0]; }
+  }
+  if(!sd) return null;
+  const certs=[], serials=[];
+  for(const c of kids(der,sd.s,sd.e)){
+    if(c.t===0xA0){
+      for(const cert of kids(der,c.s,c.e)){
+        if(cert.t!==0x30) continue;
+        const tb=kids(der,cert.s,cert.e);
+        if(!tb.length) continue;
+        const f=kids(der,tb[0].s,tb[0].e);
+        const idx=(f.length&&f[0].t===0xA0)?1:0;
+        if(f.length<idx+5) continue;
+        certs.push({ser:f[idx], sub:cnOfName(der,f[idx+4].s,f[idx+4].e), iss:cnOfName(der,f[idx+2].s,f[idx+2].e)});
+      }
+    }
+    if(c.t===0x31){
+      for(const si of kids(der,c.s,c.e)){
+        const p=kids(der,si.s,si.e);
+        if(p.length>=2 && p[1].t===0x30){
+          const ias=kids(der,p[1].s,p[1].e);
+          if(ias.length>=2 && ias[1].t===2) serials.push(ias[1]);
+        }
+      }
+    }
+  }
+  for(const s of serials){
+    for(const c of certs){
+      if(c.sub && sameBytes(der,c.ser.s,c.ser.e,s.s,s.e)) return c.sub;
+    }
+  }
+  const issuers=new Set(certs.map(c=>c.iss).filter(Boolean));
+  for(const c of certs) if(c.sub && !issuers.has(c.sub)) return c.sub;
+  for(const c of certs) if(c.sub) return c.sub;
+  return null;
+}
+
+/* ================= ANALIZA PLIKU ================= */
+const MAX_CONTENTS_HEX=8*1024*1024;
+function readContentsAt(u8,at){
+  let i=at+P_CONTENTS.length;
+  while(i<u8.length&&isWs(u8[i])) i++;
+  if(u8[i]!==0x3C) return null;
+  i++;
+  const hexStart=i;
+  let count=0, nonZero=false;
+  while(i<u8.length && u8[i]!==0x3E){
+    const c=u8[i];
+    if(isHex(c)){ count++; if(c!==0x30) nonZero=true; }
+    else if(!isWs(c)) return null;
+    if(count>MAX_CONTENTS_HEX) return null;
+    i++;
+  }
+  if(u8[i]!==0x3E) return null;
+  if(count<200) return null;
+  return {start:at,hexStart:hexStart,hexEnd:i,end:i+1,count:count,nonZero:nonZero};
+}
+function hexToBytes(u8,from,to,count){
+  const out=new Uint8Array(count>>1);
+  let hi=-1,o=0;
+  for(let i=from;i<to;i++){
+    const c=u8[i];
+    if(!isHex(c)) continue;
+    const v=c<=57?c-48:(c<=70?c-55:c-87);
+    if(hi<0) hi=v; else { out[o++]=(hi<<4)|v; hi=-1; }
+  }
+  let e=o;
+  while(e>0&&out[e-1]===0) e--;
+  return out.subarray(0,e);
+}
+function countSigFields(u8){
+  let n=0;
+  for(const at of findAll(u8,P_FT)){
+    let i=at+3;
+    while(i<u8.length&&isWs(u8[i])) i++;
+    let ok=true;
+    for(let k=0;k<P_SIG.length;k++) if(u8[i+k]!==P_SIG[k]){ok=false;break;}
+    if(ok){
+      const nx=u8[i+P_SIG.length];
+      if(nx===undefined||isWs(nx)||nx===0x2F||nx===0x3E) n++;
+    }
+  }
+  return n;
+}
+function fmtPdfDate(w){
+  const m=w.match(/\/M\s*\(\s*D:(\d{4})(\d\d)?(\d\d)?(\d\d)?(\d\d)?/);
+  if(!m) return null;
+  return m[1]+"-"+(m[2]||"01")+"-"+(m[3]||"01")+" "+(m[4]||"00")+":"+(m[5]||"00");
+}
+function cleanName(s){
+  if(!s) return null;
+  let bad=0;
+  for(let i=0;i<s.length;i++){const c=s.charCodeAt(i); if(c<32||c===127) bad++;}
+  if(bad>s.length*0.05) return null;
+  s=s.replace(/\\(\d{3})/g,(x,o)=>String.fromCharCode(parseInt(o,8))).trim();
+  return s.length?s.slice(0,80):null;
+}
+function analyse(u8,name,size,path){
+  const res={name:name,path:path||null,size:size,status:"BRAK",nSig:0,nTs:0,fields:0,
+             who:null,when:null,std:null,enc:false,note:null};
+  if(findAll(u8.subarray(0,2048),P_PDF,1).length===0){
+    res.status="NIE_PDF"; res.note="Plik nie zaczyna się od nagłówka PDF.";
+    return res;
+  }
+  res.enc=findAll(u8,P_ENCRYPT,1).length>0;
+  const brs=findAll(u8,P_BYTERANGE);
+  res.fields=countSigFields(u8);
+  const sigs=[];
+  if(brs.length){
+    for(const at of findAll(u8,P_CONTENTS)){
+      const c=readContentsAt(u8,at);
+      if(!c) continue;
+      let near=false;
+      for(const b of brs){ if(Math.abs(b-c.start)<8000 || Math.abs(b-c.end)<8000){ near=true; break; } }
+      if(!near) continue;
+      const w=latin1(u8,c.start-700,c.start)+" | "+latin1(u8,c.end,c.end+700);
+      const sub=w.match(/\/SubFilter\s*\/([A-Za-z0-9._\-]+)/);
+      const std=sub?sub[1]:null;
+      const isTs=w.indexOf("/DocTimeStamp")>=0 || (std!==null&&std.indexOf("RFC3161")>=0);
+      const nm=w.match(/\/Name\s*\(([^)]{1,150})\)/);
+      let who=null;
+      if(c.nonZero){
+        try{ who=signerFromCms(hexToBytes(u8,c.hexStart,c.hexEnd,c.count)); }catch(err){ who=null; }
+      }
+      if(!who) who=cleanName(nm?nm[1]:null);
+      sigs.push({filled:c.nonZero,ts:isTs,std:std,who:who,when:fmtPdfDate(w)});
+    }
+  }
+  const real=sigs.filter(s=>s.filled);
+  const people=real.filter(s=>!s.ts);
+  res.nSig=people.length;
+  res.nTs=real.length-people.length;
+  const placeholders=sigs.length-real.length;
+  res.fields=Math.max(res.fields,placeholders);
+  if(res.nSig>0){
+    res.status="PODPISANY";
+    const src=people.find(s=>s.who)||people[0];
+    res.who=src?src.who:null;
+    res.when=(people.find(s=>s.when)||{}).when||null;
+    res.std=(people.find(s=>s.std)||{}).std||null;
+  } else if(res.nTs>0){
+    res.status="TYLKO_ZNACZNIK_CZASU";
+    res.std=(real.find(s=>s.std)||{}).std||null;
+    res.when=(real.find(s=>s.when)||{}).when||null;
+  } else if(placeholders>0||res.fields>0){
+    res.status="PUSTE_POLE";
+  } else {
+    res.status="BRAK";
+  }
+  return res;
+}
+
+/* ================= STAN I WIDOK ================= */
+const GROUPS={
+  BRAK:{label:"Bez podpisu",pill:"bad",row:"s-bad",rank:0},
+  PUSTE_POLE:{label:"Puste pole podpisu",pill:"bad",row:"s-bad",rank:1},
+  TYLKO_ZNACZNIK_CZASU:{label:"Tylko znacznik czasu",pill:"warn",row:"s-warn",rank:2},
+  NIE_PDF:{label:"To nie jest PDF",pill:"flat",row:"s-warn",rank:3},
+  BLAD:{label:"Nie udało się odczytać",pill:"flat",row:"s-warn",rank:4},
+  PODPISANY:{label:"Podpisany",pill:"ok",row:"",rank:5}
+};
+const TABS=[
+  {key:"ALL",label:"Wszystkie"},
+  {key:"PROBLEM",label:"Do sprawdzenia"},
+  {key:"BRAK",label:"Bez podpisu"},
+  {key:"PUSTE_POLE",label:"Puste pole"},
+  {key:"TYLKO_ZNACZNIK_CZASU",label:"Tylko znacznik czasu"},
+  {key:"PODPISANY",label:"Podpisane"},
+  {key:"INNE",label:"Nieczytelne"}
+];
+let results=[], isSample=true, filter="ALL";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const kb=n=>n>=1048576?(n/1048576).toFixed(1)+" MB":Math.max(1,Math.round(n/1024))+" kB";
+const nfmt=n=>Number(n).toLocaleString("pl-PL");
+
+function inTab(r,key){
+  if(key==="ALL") return true;
+  if(key==="PROBLEM") return r.status!=="PODPISANY";
+  if(key==="INNE") return r.status==="NIE_PDF"||r.status==="BLAD";
+  return r.status===key;
+}
+function sortResults(){
+  results.sort((a,b)=>{
+    const d=GROUPS[a.status].rank-GROUPS[b.status].rank;
+    if(d) return d;
+    return a.name.localeCompare(b.name,"pl");
+  });
+}
+function render(){
+  sortResults();
+  const shown=results.filter(r=>inTab(r,filter));
+  let html="";
+  for(const r of shown){
+    const g=GROUPS[r.status];
+    const sigTxt=r.status==="PODPISANY"
+      ? (r.nSig+(r.nTs?" + "+r.nTs+" zn. czasu":""))
+      : (r.status==="PUSTE_POLE"? (r.fields+" puste") : (r.status==="TYLKO_ZNACZNIK_CZASU"? r.nTs+" zn. czasu":"0"));
+    html+="<tr class=\""+g.row+"\">"+
+      "<td><span class=\"fn\">"+esc(r.name)+"</span>"+(r.path?"<span class=\"fp\">"+esc(r.path)+"</span>":"")+"</td>"+
+      "<td><span class=\"pill "+g.pill+"\">"+g.label+"</span>"+(r.enc?"<span class=\"tagline\">plik zaszyfrowany</span>":"")+"</td>"+
+      "<td>"+(r.who?esc(r.who):"<span class=\"dim\">"+(r.status==="PODPISANY"?"nie odczytano z certyfikatu":"&ndash;")+"</span>")+"</td>"+
+      "<td class=\"num\">"+(r.when?esc(r.when):"<span class=\"dim\">&ndash;</span>")+"</td>"+
+      "<td class=\"num r\">"+esc(sigTxt)+"</td>"+
+      "<td class=\"std\">"+(r.std?esc(r.std):"<span class=\"dim\">&ndash;</span>")+"</td>"+
+      "<td class=\"num r\">"+kb(r.size)+"</td>"+
+      "</tr>";
+  }
+  $("rows").innerHTML=html;
+  $("nonote").hidden=shown.length>0;
+
+  const counts={};
+  for(const t of TABS) counts[t.key]=results.filter(r=>inTab(r,t.key)).length;
+  $("tabs").innerHTML=TABS.filter(t=>t.key==="ALL"||t.key==="PROBLEM"||counts[t.key]>0)
+    .map(t=>"<button class=\"tab\" role=\"tab\" data-key=\""+t.key+"\" aria-selected=\""+(t.key===filter)+"\">"+
+      t.label+" <span class=\"n\">"+counts[t.key]+"</span></button>").join("");
+  for(const b of $("tabs").querySelectorAll(".tab"))
+    b.addEventListener("click",()=>{filter=b.dataset.key;render();});
+
+  const problem=counts.PROBLEM, total=results.length;
+  const v=$("verdict");
+  v.classList.add("on");
+  v.classList.toggle("alarm",problem>0);
+  $("vnum").textContent=problem;
+  $("vtxt").innerHTML=problem
+    ? "z <b>"+total+"</b> dokumentów wymaga sprawdzenia. Podpis elektroniczny ma <b>"+counts.PODPISANY+"</b>."
+    : "Wszystkie <b>"+total+"</b> dokumenty mają podpis elektroniczny.";
+  $("clear").disabled=isSample||!results.length;
+  $("ltitle").textContent=isSample?"Wiersze przykładowe":"Wynik sprawdzenia";
+  $("lhint").textContent=isSample
+    ? "Wynik pomiaru na 14 plikach z zestawu testowego ETSI. Po wrzuceniu własnych plików ta lista zostanie zastąpiona."
+    : "Pliki bez podpisu są na górze listy.";
+}
+
+/* ================= LICZNIK UZYSKU ================= */
+const SEC_PER_FILE=30;
+const AB_NS="podpisy-pdf-cyfrowe", AB_KEY="pdf-sprawdzone";
+const AB_GET="https://abacus.jasoncameron.dev/get/"+AB_NS+"/"+AB_KEY;
+const AB_HIT="https://abacus.jasoncameron.dev/hit/"+AB_NS+"/"+AB_KEY;
+const QKEY="podpisy-pdf-kolejka", SKEY="podpisy-pdf-sesja";
+let shared=null;            /* wartość wspólnego licznika, null gdy niedostępny */
+let sessionCount=0;
+let queued=0;
+let sending=false;
+
+function lsGet(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:Number(v)||0; }catch(e){ return d; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,String(v)); }catch(e){} }
+
+function fmtTime(sec){
+  const h=Math.floor(sec/3600), m=Math.round((sec%3600)/60);
+  if(h>0) return nfmt(h)+" godz."+(m>0?" "+m+" min":"");
+  if(sec>=60) return Math.round(sec/60)+" min";
+  return sec+" s";
+}
+function paintGain(){
+  const base=(shared==null?sessionCount:shared);
+  $("g-time").textContent=fmtTime(base*SEC_PER_FILE);
+  $("g-total").textContent=nfmt(base);
+  $("g-total-sub").textContent=(shared==null)
+    ? "licznik wspólny niedostępny w tym widoku"
+    : (queued>0? "dosyłam do licznika: "+nfmt(queued) : "licznik wspólny");
+  $("g-session").textContent=nfmt(sessionCount);
+  $("g-session-sub").textContent=sessionCount
+    ? "czyli "+fmtTime(sessionCount*SEC_PER_FILE)+" ręcznej pracy"
+    : "nic jeszcze nie sprawdzono";
+  $("g-foot").textContent=(shared==null)
+    ? "Wspólny licznik działa na stronie publikowanej pod GitHub Pages. W tym widoku pokazana jest tylko ta sesja."
+    : "Licznik zapisuje wyłącznie liczbę sprawdzonych plików. Nazwy dokumentów i ich treść nigdzie nie wychodzą.";
+}
+/* Zwiększanie po jednym, bo usługa licznika przyjmuje 30 zapytań na 10 sekund.
+   Kolejka siedzi w pamięci przeglądarki, więc zamknięcie karty nic nie gubi. */
+async function flushQueue(){
+  if(sending||shared==null) return;
+  sending=true;
+  while(queued>0){
+    try{
+      const r=await fetch(AB_HIT,{cache:"no-store"});
+      if(r.status===429){ await new Promise(t=>setTimeout(t,3000)); continue; }
+      const d=await r.json();
+      if(d&&d.value!=null) shared=Number(d.value);
+      queued--; lsSet(QKEY,queued);
+      paintGain();
+    }catch(err){ break; }
+    await new Promise(t=>setTimeout(t,340));
+  }
+  sending=false;
+}
+function addToCounter(n){
+  sessionCount+=n; lsSet(SKEY,sessionCount);
+  queued+=n; lsSet(QKEY,queued);
+  paintGain();
+  flushQueue();
+}
+async function initCounter(){
+  sessionCount=lsGet(SKEY,0);
+  queued=lsGet(QKEY,0);
+  paintGain();
+  try{
+    const r=await fetch(AB_GET,{cache:"no-store"});
+    const d=await r.json();
+    shared=(d&&d.value!=null)?Number(d.value):0;
+  }catch(err){ shared=null; }
+  paintGain();
+  flushQueue();
+}
+
+/* ================= WCZYTYWANIE ================= */
+let busy=false;
+async function run(files){
+  if(busy||!files.length) return;
+  busy=true;
+  if(isSample){ results=[]; isSample=false; }
+  $("prog").classList.add("on");
+  let done=0;
+  const t0=performance.now();
+  for(const f of files){
+    try{
+      const buf=await f.arrayBuffer();
+      results.push(analyse(new Uint8Array(buf),f.name,f.size,f.__path||null));
+    }catch(err){
+      results.push({name:f.name,path:f.__path||null,size:f.size||0,status:"BLAD",nSig:0,nTs:0,
+                    fields:0,who:null,when:null,std:null,enc:false,note:String(err)});
+    }
+    done++;
+    if(done%10===0||done===files.length){
+      const pct=Math.round(done/files.length*100);
+      $("bar").style.width=pct+"%";
+      $("pnote").textContent="Sprawdzam "+done+" z "+files.length+" plików ("+pct+"%)";
+      render();
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  const secs=((performance.now()-t0)/1000).toFixed(1);
+  $("pnote").textContent="Gotowe. Sprawdzono "+files.length+" plików w "+secs+" s. Ręcznie zajęłoby to "+fmtTime(files.length*SEC_PER_FILE)+".";
+  $("bar").style.width="100%";
+  render();
+  addToCounter(files.length);
+  busy=false;
+}
+function isPdf(f){ return /\.pdf$/i.test(f.name)||f.type==="application/pdf"; }
+function collect(list){ return Array.from(list).filter(isPdf); }
+
+$("pick-files").addEventListener("click",()=>$("in-files").click());
+$("pick-dir").addEventListener("click",()=>$("in-dir").click());
+$("in-files").addEventListener("change",e=>{run(collect(e.target.files));e.target.value="";});
+$("in-dir").addEventListener("change",e=>{
+  const fs=collect(e.target.files);
+  for(const f of fs){ const p=f.webkitRelativePath; if(p&&p!==f.name) f.__path=p; }
+  run(fs); e.target.value="";
+});
+$("clear").addEventListener("click",()=>{
+  results=[];filter="ALL";
+  $("prog").classList.remove("on");
+  $("verdict").classList.remove("on");
+  $("tabs").innerHTML="";
+  $("rows").innerHTML="";$("nonote").hidden=false;
+  $("clear").disabled=true;
+});
+
+const dz=$("dz");
+["dragenter","dragover"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove("over");}));
+async function walk(entry,base,out){
+  if(entry.isFile){
+    const f=await new Promise((res,rej)=>entry.file(res,rej));
+    if(isPdf(f)){ if(base) f.__path=base+f.name; out.push(f); }
+    return;
+  }
+  const reader=entry.createReader();
+  while(true){
+    const batch=await new Promise((res,rej)=>reader.readEntries(res,rej));
+    if(!batch.length) break;
+    for(const e of batch) await walk(e,base+entry.name+"/",out);
+  }
+}
+dz.addEventListener("drop",async e=>{
+  const items=e.dataTransfer.items;
+  const entries=[];
+  if(items&&items.length&&items[0].webkitGetAsEntry){
+    for(const it of items){ const en=it.webkitGetAsEntry&&it.webkitGetAsEntry(); if(en) entries.push(en); }
+  }
+  if(entries.length){
+    const out=[];
+    $("prog").classList.add("on");
+    $("pnote").textContent="Zbieram listę plików...";
+    for(const en of entries) await walk(en,"",out);
+    run(out);
+  } else {
+    run(collect(e.dataTransfer.files));
+  }
+});
+
+/* ================= EKSPORT ================= */
+let downloads=null;
+if(window.claude&&typeof window.claude.use==="function"){
+  window.claude.use("downloads").then(d=>{downloads=d;}).catch(()=>{});
+}
+function buildCsv(){
+  const head=["Plik","Sciezka","Ocena","Podpisy","Znaczniki czasu","Puste pola","Kto podpisal","Data podpisu","Standard","Zaszyfrowany","Rozmiar w bajtach"];
+  const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+  const lines=[head.map(q).join(";")];
+  sortResults();
+  for(const r of results) lines.push([r.name,r.path||"",GROUPS[r.status].label,r.nSig,r.nTs,r.fields,
+    r.who||"",r.when||"",r.std||"",r.enc?"tak":"nie",r.size].map(q).join(";"));
+  return "﻿"+lines.join("\r\n");
+}
+$("csv").addEventListener("click",async()=>{
+  const msg=$("csvmsg");
+  if(!results.length){ msg.textContent="Najpierw proszę wrzucić pliki."; return; }
+  const csv=buildCsv();
+  msg.textContent="";
+  if(downloads){
+    try{
+      await downloads.save({filename:"podpisy-pdf.csv",data:csv});
+      msg.textContent="Plik zapisany.";
+    }catch(err){
+      msg.textContent=(err&&err.code==="declined")?"Zapis odrzucony.":"Nie udało się zapisać pliku.";
+    }
+    return;
+  }
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="podpisy-pdf.csv";
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+});
+
+
+results=SAMPLE.map(r=>Object.assign({path:null,note:null},r));
+render();
+initCounter();
+</script>
