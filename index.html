@@ -46,6 +46,8 @@ h1{margin:0;font-size:22px;font-weight:600;letter-spacing:-.02em;text-align:cent
     transition:border-color .16s,background .16s}
 .dz.over{border-style:solid;border-color:var(--acc);background:var(--acc-soft)}
 .dz-lead{font-size:15px;font-weight:600;color:var(--ink2)}
+.msg{font-size:12px;color:var(--muted);max-width:52ch}
+.msg:empty{display:none}
 .row{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center}
 .btn{display:inline-flex;align-items:center;justify-content:center;
      font:600 13px var(--f);color:var(--ink2);background:var(--card);border:1px solid var(--edge);
@@ -133,7 +135,9 @@ tr.s-warn td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
         <span class="row">
           <button class="btn pri" id="pick-files">Wybierz pliki</button>
           <button class="btn" id="pick-dir">Wybierz folder</button>
+          <button class="btn" id="pick-drive" hidden>Dysk Google</button>
         </span>
+        <span class="msg" id="drive-msg" role="status"></span>
         <input type="file" id="in-files" multiple accept="application/pdf,.pdf" hidden>
         <input type="file" id="in-dir" webkitdirectory directory multiple hidden>
       </div>
@@ -544,37 +548,209 @@ async function initCounter(){
 }
 
 /* ================= WCZYTYWANIE ================= */
+/* Jedna droga dla obu źródeł. Pozycja to nazwa, rozmiar, opis miejsca
+   i funkcja, która dostarcza bajty: z pliku na dysku albo z Dysku Google. */
 let busy=false;
-async function run(files){
-  if(busy||!files.length) return;
+async function runItems(items){
+  if(busy||!items.length) return;
   busy=true;
   $("prog").hidden=false;
   let done=0;
   const t0=performance.now();
-  for(const f of files){
+  for(const it of items){
     try{
-      const buf=await f.arrayBuffer();
-      results.push(analyse(new Uint8Array(buf),f.name,f.size,f.__path||null));
+      const buf=await it.bytes();
+      results.push(analyse(new Uint8Array(buf),it.name,buf.byteLength,it.path||null));
     }catch(err){
-      results.push({name:f.name,path:f.__path||null,size:f.size||0,status:"BLAD",nSig:0,nTs:0,
+      results.push({name:it.name,path:it.path||null,size:it.size||0,status:"BLAD",nSig:0,nTs:0,
                     fields:0,who:null,when:null,std:null,enc:false,note:String(err)});
     }
     done++;
-    if(done%10===0||done===files.length){
-      const pct=Math.round(done/files.length*100);
+    if(done%5===0||done===items.length){
+      const pct=Math.round(done/items.length*100);
       $("bar").style.width=pct+"%";
-      $("pnote").textContent=done+" z "+files.length;
+      $("pnote").textContent=done+" z "+items.length;
       render();
       await new Promise(r=>setTimeout(r,0));
     }
   }
   $("bar").style.width="100%";
-  $("pnote").textContent="Sprawdzono "+files.length+" plików w "+((performance.now()-t0)/1000).toFixed(1)+" s.";
+  $("pnote").textContent="Sprawdzono "+items.length+" plików w "+((performance.now()-t0)/1000).toFixed(1)+" s.";
   filter="PROBLEM";
   render();
-  addToCounter(files.length);
+  addToCounter(items.length);
   busy=false;
 }
+function run(files){
+  return runItems(Array.from(files).map(f=>({
+    name:f.name, size:f.size, path:f.__path||null, bytes:()=>f.arrayBuffer()
+  })));
+}
+/* ================= DYSK GOOGLE =================
+   Trzy wartości z projektu Google Cloud. Nie są tajne: identyfikator klienta
+   i klucz API są w każdej stronie widoczne, a chroni je ograniczenie do adresu
+   tej witryny, ustawiane w konsoli Google Cloud.
+   Puste wartości oznaczają, że przycisk „Dysk Google" się nie pokazuje. */
+const GOOGLE={
+  clientId:"",     /* identyfikator klienta OAuth (kończy się na .apps.googleusercontent.com) */
+  apiKey:"",       /* klucz API */
+  appId:"",        /* numer projektu Google Cloud */
+  /* drive.readonly pozwala wejść do wskazanego folderu i przeczytać jego zawartość.
+     Węższy drive.file wystarcza do pojedynczych plików, ale nie gwarantuje
+     wylistowania folderu. */
+  scope:"https://www.googleapis.com/auth/drive.readonly"
+};
+const DRIVE_API="https://www.googleapis.com/drive/v3/files";
+const FOLDER_MIME="application/vnd.google-apps.folder";
+let gToken=null, gTokenClient=null, gPickerReady=false;
+
+function driveMsg(t){ $("drive-msg").textContent=t||""; }
+
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src=src; s.async=true;
+    s.onload=res;
+    s.onerror=()=>rej(new Error("nie udało się wczytać "+src));
+    document.head.appendChild(s);
+  });
+}
+/* Biblioteki Google wczytujemy dopiero przy pierwszym kliknięciu. */
+async function initGoogle(){
+  if(gPickerReady) return;
+  await loadScript("https://apis.google.com/js/api.js");
+  await new Promise((res,rej)=>{
+    try{ gapi.load("picker",{callback:res,onerror:()=>rej(new Error("picker"))}); }
+    catch(err){ rej(err); }
+  });
+  await loadScript("https://accounts.google.com/gsi/client");
+  gTokenClient=google.accounts.oauth2.initTokenClient({
+    client_id:GOOGLE.clientId,
+    scope:GOOGLE.scope,
+    callback:()=>{}
+  });
+  gPickerReady=true;
+}
+/* silent=true prosi o token bez okienka. Okienko wolno otworzyć tylko
+   bezpośrednio po kliknięciu, inaczej przeglądarka je zablokuje. */
+function getToken(silent){
+  return new Promise((res,rej)=>{
+    gTokenClient.callback=r=>{
+      if(r&&r.access_token){ gToken=r.access_token; res(gToken); }
+      else rej(new Error((r&&r.error_description)||(r&&r.error)||"brak zgody na dostęp"));
+    };
+    try{ gTokenClient.requestAccessToken(silent?{prompt:""}:{}); }
+    catch(err){ rej(err); }
+  });
+}
+async function driveGet(url){
+  const r=await fetch(url,{headers:{Authorization:"Bearer "+gToken}});
+  if(r.status===401){                       /* token wygasł w trakcie, jeden cichy obieg */
+    try{ await getToken(true); }
+    catch(err){ throw new Error("dostęp do Dysku Google wygasł, proszę wskazać pliki ponownie"); }
+    return fetch(url,{headers:{Authorization:"Bearer "+gToken}});
+  }
+  return r;
+}
+async function driveList(folderId){
+  const out=[];
+  let page="";
+  do{
+    const u=DRIVE_API+"?q="+encodeURIComponent("'"+folderId+"' in parents and trashed=false")+
+      "&fields=nextPageToken,files(id,name,mimeType,size)&pageSize=1000"+
+      "&supportsAllDrives=true&includeItemsFromAllDrives=true"+(page?"&pageToken="+page:"");
+    const r=await driveList_fetch(u);
+    out.push.apply(out,r.files||[]);
+    page=r.nextPageToken||"";
+  } while(page);
+  return out;
+}
+async function driveList_fetch(u){
+  const r=await driveGet(u);
+  if(!r.ok) throw new Error("Dysk Google odpowiedział "+r.status);
+  return r.json();
+}
+/* Schodzi w podfoldery. Ścieżka służy tylko do pokazania, skąd plik pochodzi. */
+async function collectFolder(id,name,base,out,seen){
+  if(seen.has(id)) return;
+  seen.add(id);
+  const path=base?base+"/"+name:name;
+  driveMsg("Zbieram listę plików w „"+path+"”, mam już "+out.length+"...");
+  const kids=await driveList(id);
+  for(const k of kids){
+    if(k.mimeType===FOLDER_MIME) await collectFolder(k.id,k.name,path,out,seen);
+    else if(k.mimeType==="application/pdf"||/\.pdf$/i.test(k.name)) out.push({file:k,path:path});
+  }
+}
+function driveItem(f,path){
+  return {
+    name:f.name,
+    size:Number(f.size||0),
+    path:path||null,
+    bytes:async()=>{
+      const r=await driveGet(DRIVE_API+"/"+f.id+"?alt=media&supportsAllDrives=true");
+      if(!r.ok) throw new Error("pobranie nie wyszło ("+r.status+")");
+      return r.arrayBuffer();
+    }
+  };
+}
+async function pickFromDrive(){
+  if(busy) return;
+  driveMsg("Łączę z Dyskiem Google...");
+  try{
+    await initGoogle();
+    await getToken();
+  }catch(err){
+    driveMsg("Nie udało się połączyć z Dyskiem Google. "+(err&&err.message?err.message:""));
+    return;
+  }
+  driveMsg("");
+  const pdfView=new google.picker.DocsView(google.picker.ViewId.DOCS)
+    .setMimeTypes("application/pdf").setIncludeFolders(true).setEnableDrives(true);
+  const folderView=new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+    .setMimeTypes(FOLDER_MIME).setIncludeFolders(true)
+    .setSelectFolderEnabled(true).setEnableDrives(true);
+  new google.picker.PickerBuilder()
+    .setTitle("Wskaż pliki PDF albo folder")
+    .setOAuthToken(gToken)
+    .setDeveloperKey(GOOGLE.apiKey)
+    .setAppId(GOOGLE.appId)
+    .addView(pdfView)
+    .addView(folderView)
+    .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+    .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
+    .setCallback(onPicked)
+    .build().setVisible(true);
+}
+async function onPicked(data){
+  if(!data||data.action!==google.picker.Action.PICKED) return;
+  const picked=data.docs||[];
+  const out=[], seen=new Set();
+  $("prog").hidden=false;
+  $("pnote").textContent="Zbieram listę plików z Dysku Google...";
+  try{
+    for(const d of picked){
+      if(d.mimeType===FOLDER_MIME) await collectFolder(d.id,d.name,"",out,seen);
+      else out.push({file:{id:d.id,name:d.name,size:d.sizeBytes},path:null});
+    }
+  }catch(err){
+    driveMsg("Nie udało się przeczytać folderu. "+(err&&err.message?err.message:""));
+    $("prog").hidden=results.length===0;
+    return;
+  }
+  driveMsg("");
+  if(!out.length){
+    $("prog").hidden=results.length===0;
+    driveMsg("W tym miejscu nie ma plików PDF.");
+    return;
+  }
+  runItems(out.map(o=>driveItem(o.file,o.path)));
+}
+if(GOOGLE.clientId&&GOOGLE.apiKey){
+  $("pick-drive").hidden=false;
+  $("pick-drive").addEventListener("click",pickFromDrive);
+}
+
 function isPdf(f){ return /\.pdf$/i.test(f.name)||f.type==="application/pdf"; }
 function collect(list){ return Array.from(list).filter(isPdf); }
 
